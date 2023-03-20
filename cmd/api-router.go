@@ -342,7 +342,7 @@ func registerAPIRouter(router *mux.Router) {
 			collectAPIStats("getbucketnotification", maxClients(gz(httpTraceAll(api.GetBucketNotificationHandler))))).Queries("notification", "")
 		// ListenNotification
 		router.Methods(http.MethodGet).HandlerFunc(
-			collectAPIStats("listennotification", maxClients(gz(httpTraceAll(api.ListenNotificationHandler))))).Queries("events", "{events:.*}")
+			collectAPIStats("listennotification", gz(httpTraceAll(api.ListenNotificationHandler)))).Queries("events", "{events:.*}")
 		// ResetBucketReplicationStatus - MinIO extension API
 		router.Methods(http.MethodGet).HandlerFunc(
 			collectAPIStats("resetbucketreplicationstatus", maxClients(gz(httpTraceAll(api.ResetBucketReplicationStatusHandler))))).Queries("replication-reset-status", "")
@@ -431,8 +431,9 @@ func registerAPIRouter(router *mux.Router) {
 		router.Methods(http.MethodHead).HandlerFunc(
 			collectAPIStats("headbucket", maxClients(gz(httpTraceAll(api.HeadBucketHandler)))))
 		// PostPolicy
-		router.Methods(http.MethodPost).HeadersRegexp(xhttp.ContentType, "multipart/form-data*").HandlerFunc(
-			collectAPIStats("postpolicybucket", maxClients(gz(httpTraceHdrs(api.PostPolicyBucketHandler)))))
+		router.Methods(http.MethodPost).MatcherFunc(func(r *http.Request, _ *mux.RouteMatch) bool {
+			return isRequestPostPolicySignatureV4(r)
+		}).HandlerFunc(collectAPIStats("postpolicybucket", maxClients(gz(httpTraceHdrs(api.PostPolicyBucketHandler)))))
 		// DeleteMultipleObjects
 		router.Methods(http.MethodPost).HandlerFunc(
 			collectAPIStats("deletemultipleobjects", maxClients(gz(httpTraceAll(api.DeleteMultipleObjectsHandler))))).Queries("delete", "")
@@ -516,7 +517,11 @@ func corsHandler(handler http.Handler) http.Handler {
 
 	return cors.New(cors.Options{
 		AllowOriginFunc: func(origin string) bool {
-			for _, allowedOrigin := range globalAPIConfig.getCorsAllowOrigins() {
+			allowedOrigins := globalAPIConfig.getCorsAllowOrigins()
+			if len(allowedOrigins) == 0 {
+				allowedOrigins = []string{"*"}
+			}
+			for _, allowedOrigin := range allowedOrigins {
 				if wildcard.MatchSimple(allowedOrigin, origin) {
 					return true
 				}
